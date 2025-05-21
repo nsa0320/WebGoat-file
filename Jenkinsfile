@@ -12,7 +12,7 @@ pipeline {
             steps {
                 git branch: 'develop',
                     url: 'https://github.com/nsa0320/WebGoat.git',
-                    credentialsId: 'jen-github-pat'  // GitHub Personal Access Token 등록한 ID
+                    credentialsId: '1'  
             }
         }
 
