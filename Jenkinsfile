@@ -13,7 +13,7 @@ pipeline {
             steps {
                 git branch: 'develop',
                     url: 'https://github.com/nsa0320/WebGoat-file.git',
-                    credentialsId: '1' 
+                    credentialsId: '1' // ✅ GitHub 자격증명
             }
         }
 
@@ -33,7 +33,7 @@ pipeline {
 
         stage('Login to ECR') {
             steps {
-                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: '1']]) {
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'ecr-login']]) {
                     sh '''
                         aws ecr get-login-password --region $AWS_REGION \
                         | docker login --username AWS --password-stdin $ECR_REGISTRY
@@ -88,7 +88,7 @@ Resources:
 
         stage('Deploy to ECS') {
             steps {
-                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: '1']]) {
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'ecr-login']]) {
                     sh '''
                         aws ecs register-task-definition --cli-input-json file://taskdef.json
 
