@@ -72,7 +72,7 @@ pipeline {
                       --application-name webgoat-app \
                       --deployment-group-name webgoat-deploy-group \
                       --deployment-config-name CodeDeployDefault.ECSAllAtOnce \
-                      --s3-location bucket=codedeploy-files-nsa,key=appspec.yaml,bundleType=YAML \
+                      --s3-location bucket=codedeploy-files-nsa,key=webgoat-deploy.zip,bundleType=zip \
                       --region $AWS_REGION
                 '''
             }
