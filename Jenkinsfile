@@ -2,9 +2,12 @@ pipeline {
     agent any
 
     environment {
-        ECR_REGISTRY = "341162387145.dkr.ecr.ap-northeast-2.amazonaws.com"
-        APP_REPO_NAME = "nsa"
-        AWS_REGION = "ap-northeast-2"
+        AWS_REGION = 'ap-northeast-2'
+        AWS_ACCESS_KEY_ID = credentials('ecr-login')
+        AWS_SECRET_ACCESS_KEY = credentials('ecr-login')
+        ECR_REGISTRY = '341162387145.dkr.ecr.ap-northeast-2.amazonaws.com'
+        APP_REPO_NAME = 'nsa'
+        S3_BUCKET = 'codedeploy-files-nsa'
     }
 
     stages {
@@ -25,20 +28,16 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 sh '''
-                    docker build --force-rm \
-                    -t $ECR_REGISTRY/$APP_REPO_NAME:latest .
+                    docker build --force-rm -t $ECR_REGISTRY/$APP_REPO_NAME:latest .
                 '''
             }
         }
 
         stage('Login to ECR') {
             steps {
-                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'ecr-login']]) {
-                    sh '''
-                        aws ecr get-login-password --region $AWS_REGION \
-                        | docker login --username AWS --password-stdin $ECR_REGISTRY
-                    '''
-                }
+                sh '''
+                    aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
+                '''
             }
         }
 
@@ -73,7 +72,7 @@ pipeline {
                       --deployment-group-name webgoat-deploy-group \
                       --deployment-config-name CodeDeployDefault.ECSAllAtOnce \
                       --s3-location bucket=codedeploy-files-nsa,key=appspec.yaml,bundleType=YAML \
-                      --region ap-northeast-2
+                      --region $AWS_REGION
                 '''
             }
         }
@@ -81,7 +80,7 @@ pipeline {
 
     post {
         always {
-            echo ' Cleaning up Docker images...'
+            echo '🧼 Cleaning up Docker images...'
             sh 'docker image prune -af'
         }
     }
