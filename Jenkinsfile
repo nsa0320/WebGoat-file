@@ -5,7 +5,6 @@ pipeline {
         ECR_REGISTRY = "341162387145.dkr.ecr.ap-northeast-2.amazonaws.com"
         APP_REPO_NAME = "nsa"
         AWS_REGION = "ap-northeast-2"
-        IMAGE_URI = "${ECR_REGISTRY}/${APP_REPO_NAME}:latest"
     }
 
     stages {
@@ -13,7 +12,7 @@ pipeline {
             steps {
                 git branch: 'develop',
                     url: 'https://github.com/nsa0320/WebGoat-file.git',
-                    credentialsId: '1' // ✅ GitHub 자격증명
+                    credentialsId: '1'
             }
         }
 
@@ -26,7 +25,8 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 sh '''
-                    docker build --force-rm -t $IMAGE_URI .
+                    docker build --force-rm \
+                    -t $ECR_REGISTRY/$APP_REPO_NAME:latest .
                 '''
             }
         }
@@ -44,68 +44,44 @@ pipeline {
 
         stage('Push to ECR') {
             steps {
-                sh 'docker push $IMAGE_URI'
+                sh 'docker push $ECR_REGISTRY/$APP_REPO_NAME:latest'
             }
         }
 
-        stage('Generate ECS Task and AppSpec') {
+        stage('Upload Image Definitions to S3') {
             steps {
                 script {
-                    writeFile file: 'taskdef.json', text: """
-{
-  "family": "webgoat-taskdef",
-  "executionRoleArn": "arn:aws:iam::341162387145:role/ecsTaskExecutionRole",
-  "networkMode": "awsvpc",
-  "containerDefinitions": [{
+                    def imageUri = "${ECR_REGISTRY}/${APP_REPO_NAME}:latest"
+                    writeFile file: 'imagedefinitions.json', text: """[
+  {
     "name": "webgoat",
-    "image": "$IMAGE_URI",
-    "essential": true,
-    "portMappings": [{
-      "containerPort": 8080,
-      "protocol": "tcp"
-    }]
-  }],
-  "requiresCompatibilities": ["FARGATE"],
-  "cpu": "512",
-  "memory": "1024"
-}
-                    """
-
-                    writeFile file: 'appspec.yaml', text: """
-version: 0.0
-Resources:
-  - TargetService:
-      Type: AWS::ECS::Service
-      Properties:
-        TaskDefinition: webgoat-taskdef
-        LoadBalancerInfo:
-          ContainerName: webgoat
-          ContainerPort: 8080
-                    """
+    "imageUri": "${imageUri}"
+  }
+]"""
                 }
+                sh '''
+                    aws s3 cp imagedefinitions.json s3://codedeploy-files-nsa/imagedefinitions.json
+                '''
             }
         }
 
-        stage('Deploy to ECS') {
+        stage('Trigger CodeDeploy') {
             steps {
-                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'ecr-login']]) {
-                    sh '''
-                        aws ecs register-task-definition --cli-input-json file://taskdef.json
-
-                        aws deploy create-deployment \
-                          --application-name webgoat-app \
-                          --deployment-group-name webgoat-deploy-group \
-                          --deployment-config-name CodeDeployDefault.ECSAllAtOnce \
-                          --revision type=AppSpecContent,appSpecContent="{\\"content\\": \\"$(base64 appspec.yaml | tr -d '\\n')\\"}"
-                    '''
-                }
+                sh '''
+                    aws deploy create-deployment \
+                      --application-name webgoat-app \
+                      --deployment-group-name webgoat-deploy-group \
+                      --deployment-config-name CodeDeployDefault.ECSAllAtOnce \
+                      --s3-location bucket=codedeploy-files-nsa,key=appspec.yaml,bundleType=YAML \
+                      --region ap-northeast-2
+                '''
             }
         }
     }
 
     post {
         always {
-            echo '🧼 Cleaning up local Docker images...'
+            echo ' Cleaning up Docker images...'
             sh 'docker image prune -af'
         }
     }
