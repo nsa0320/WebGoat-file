@@ -61,6 +61,7 @@ pipeline {
                 sh '''
                     aws s3 cp imagedefinitions.json s3://codedeploy-files-nsa/imagedefinitions.json
                 '''
+                sleep(time: 3, unit: 'SECONDS')
             }
         }
 
