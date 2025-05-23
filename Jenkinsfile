@@ -47,27 +47,18 @@ pipeline {
             }
         }
 
-        stage('Upload Image Definitions to S3') {
+        stage('Generate Deployment Files') {
             steps {
                 script {
                     def imageUri = "${ECR_REGISTRY}/${APP_REPO_NAME}:latest"
-                    writeFile file: 'imagedefinitions.json', text: """[ 
+
+                    writeFile file: 'imagedefinitions.json', text: """[
   {
     "name": "webgoat",
     "imageUri": "${imageUri}"
   }
 ]"""
-                }
-                sh '''
-                    aws s3 cp imagedefinitions.json s3://codedeploy-files-nsa/imagedefinitions.json
-                '''
-                sleep(time: 3, unit: 'SECONDS')
-            }
-        }
 
-        stage('Zip and Upload for CodeDeploy') {
-            steps {
-                script {
                     writeFile file: 'appspec.yaml', text: """version: 0.0
 Resources:
   - TargetService:
@@ -79,10 +70,14 @@ Resources:
           ContainerPort: 8080
 """
                 }
+            }
+        }
 
+        stage('Zip and Upload for CodeDeploy') {
+            steps {
                 sh '''
                     zip webgoat-deploy.zip appspec.yaml imagedefinitions.json
-                    aws s3 cp webgoat-deploy.zip s3://codedeploy-files-nsa/webgoat-deploy.zip --region $AWS_REGION
+                    aws s3 cp webgoat-deploy.zip s3://$S3_BUCKET/webgoat-deploy.zip --region $AWS_REGION
                 '''
             }
         }
@@ -94,7 +89,7 @@ Resources:
                       --application-name webgoat-app \
                       --deployment-group-name webgoat-deploy-group \
                       --deployment-config-name CodeDeployDefault.ECSAllAtOnce \
-                      --s3-location bucket=codedeploy-files-nsa,key=webgoat-deploy.zip,bundleType=zip \
+                      --s3-location bucket=$S3_BUCKET,key=webgoat-deploy.zip,bundleType=zip \
                       --region $AWS_REGION
                 '''
             }
