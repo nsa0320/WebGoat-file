@@ -99,7 +99,6 @@ Resources:
           ContainerName: "${CONTAINER_NAME}"
           ContainerPort: ${CONTAINER_PORT}
         PlatformVersion: "LATEST"
-        Service: "${ECS_SERVICE_NAME}"
 """
                     writeFile file: 'appspec.yaml', text: appspec
                 }
