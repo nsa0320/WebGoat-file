@@ -11,7 +11,7 @@ pipeline {
         DEPLOY_APP = 'webgoat-app'
         DEPLOY_GROUP = 'webgoat-deploy-group'
         BUNDLE_NAME = 'webgoat-deploy.zip'
-        CONTAINER_NAME = 'webgoat'
+        CONTAINER_NAME = 'dummy'
         CONTAINER_PORT = '8080'
         TASK_EXEC_ROLE = 'arn:aws:iam::341162387145:role/ecsTaskExecutionRole'
         ECS_SERVICE_NAME = 'webgoat-dummy-task-service-rfvbclnr' // 변경된 ECS 서비스 이름
