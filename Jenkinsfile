@@ -54,7 +54,7 @@ pipeline {
 
                     writeFile file: 'imagedefinitions.json', text: """[
   {
-    "name": "webgoat",
+    "name": "dummy",
     "imageUri": "${imageUri}"
   }
 ]"""
