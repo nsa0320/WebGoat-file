@@ -14,7 +14,7 @@ pipeline {
         CONTAINER_NAME = 'dummy'
         CONTAINER_PORT = 8080
         TASK_EXEC_ROLE = 'arn:aws:iam::341162387145:role/ecsTaskExecutionRole'
-        ECS_SERVICE_NAME = 'webgoat-dummy-task-service-rfvbclnr' // 변경된 ECS 서비스 이름
+        ECS_SERVICE_NAME = 'webgoat-dummy-task-service-rfvbclnr'
     }
 
     stages {
@@ -99,6 +99,15 @@ Resources:
           ContainerName: "${CONTAINER_NAME}"
           ContainerPort: ${CONTAINER_PORT}
         PlatformVersion: "LATEST"
+
+trafficRoutingConfig:
+  type: AllAtOnce
+  productionTrafficRoute:
+    listenerArns:
+      - arn:aws:elasticloadbalancing:ap-northeast-2:341162387145:listener/app/webgoatalb/59927e51ff09dc36/5d857dfba2666148
+  targetGroups:
+    - name: webgoat-blue
+    - name: webgoat-green
 """
                     writeFile file: 'appspec.yaml', text: appspec
                 }
@@ -141,3 +150,4 @@ Resources:
         }
     }
 }
+
