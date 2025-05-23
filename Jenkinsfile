@@ -2,12 +2,13 @@ pipeline {
     agent any
 
     environment {
-        AWS_REGION = 'ap-northeast-2'
-        AWS_ACCESS_KEY_ID = credentials('ecr-login')
-        AWS_SECRET_ACCESS_KEY = credentials('ecr-login')
-        ECR_REGISTRY = '341162387145.dkr.ecr.ap-northeast-2.amazonaws.com'
-        APP_REPO_NAME = 'nsa'
-        S3_BUCKET = 'codedeploy-files-nsa'
+        ECR_REPO = "341162387145.dkr.ecr.ap-northeast-2.amazonaws.com/nsa"
+        IMAGE_TAG = "latest"
+        S3_BUCKET = "codedeploy-files-nsa"
+        DEPLOY_APP = "webgoat-app"
+        DEPLOY_GROUP = "webgoat-deploy-group"
+        REGION = "ap-northeast-2"
+        BUNDLE = "webgoat-deploy-bundle.zip"
     }
 
     stages {
@@ -25,80 +26,108 @@ pipeline {
             }
         }
 
-        stage('Build Docker Image') {
+        stage('Docker Build') {
             steps {
                 sh '''
-                    docker build --force-rm -t $ECR_REGISTRY/$APP_REPO_NAME:latest .
+                docker build -t $ECR_REPO:$IMAGE_TAG .
                 '''
             }
         }
 
-        stage('Login to ECR') {
+        stage('ECR Login') {
             steps {
                 sh '''
-                    aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
+                aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $ECR_REPO
                 '''
             }
         }
 
         stage('Push to ECR') {
             steps {
-                sh 'docker push $ECR_REGISTRY/$APP_REPO_NAME:latest'
+                sh 'docker push $ECR_REPO:$IMAGE_TAG'
             }
         }
 
-        stage('Generate Deployment Files') {
+        stage('Generate taskdef.json') {
             steps {
                 script {
-                    def imageUri = "${ECR_REGISTRY}/${APP_REPO_NAME}:latest"
-
-                    writeFile file: 'imagedefinitions.json', text: """[
-  {
-    "name": "dummy",
-    "imageUri": "${imageUri}"
-  }
-]"""
-
-                    writeFile file: 'appspec.yaml', text: """version: 0.0
-Resources:
-  - TargetService:
-      Type: AWS::ECS::Service
-      Properties:
-        TaskDefinition: webgoat-dummy-task:1
-        LoadBalancerInfo:
-          ContainerName: dummy
-          ContainerPort: 8080
-"""
+                    def taskdef = """{
+  "family": "webgoat-taskdef",
+  "networkMode": "awsvpc",
+  "containerDefinitions": [
+    {
+      "name": "dummy",
+      "image": "${ECR_REPO}:${IMAGE_TAG}",
+      "memory": 512,
+      "cpu": 256,
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 8080,
+          "protocol": "tcp"
+        }
+      ]
+    }
+  ],
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "256",
+  "memory": "512",
+  "executionRoleArn": "arn:aws:iam::341162387145:role/ecsTaskExecutionRole"
+}"""
+                    writeFile file: 'taskdef.json', text: taskdef
                 }
             }
         }
 
-        stage('Zip and Upload for CodeDeploy') {
+        stage('Generate appspec.yaml') {
             steps {
-                sh '''
-                    zip webgoat-deploy.zip appspec.yaml imagedefinitions.json
-                    aws s3 cp webgoat-deploy.zip s3://$S3_BUCKET/webgoat-deploy.zip --region $AWS_REGION
-                '''
+                script {
+                    def taskDefArn = sh(
+                        script: "aws ecs register-task-definition --cli-input-json file://taskdef.json --query 'taskDefinition.taskDefinitionArn' --region $REGION --output text",
+                        returnStdout: true
+                    ).trim()
+
+                    def appspec = """version: 1
+Resources:
+  - TargetService:
+      Type: AWS::ECS::Service
+      Properties:
+        TaskDefinition: "${taskDefArn}"
+        LoadBalancerInfo:
+          ContainerName: "dummy"
+          ContainerPort: 8080
+"""
+                    writeFile file: 'appspec.yaml', text: appspec
+                }
             }
         }
 
-        stage('Trigger CodeDeploy') {
+        stage('Bundle and Deploy') {
             steps {
                 sh '''
-                    aws deploy create-deployment \
-                      --application-name webgoat-app \
-                      --deployment-group-name webgoat-deploy-group \
-                      --deployment-config-name CodeDeployDefault.ECSAllAtOnce \
-                      --s3-location bucket=$S3_BUCKET,key=webgoat-deploy.zip,bundleType=zip \
-                      --region $AWS_REGION
+                zip -r $BUNDLE appspec.yaml Dockerfile taskdef.json
+
+                aws s3 cp $BUNDLE s3://$S3_BUCKET/$BUNDLE --region $REGION
+
+                aws deploy create-deployment \
+                  --application-name $DEPLOY_APP \
+                  --deployment-group-name $DEPLOY_GROUP \
+                  --deployment-config-name CodeDeployDefault.ECSAllAtOnce \
+                  --s3-location bucket=$S3_BUCKET,bundleType=zip,key=$BUNDLE \
+                  --region $REGION
                 '''
             }
         }
     }
 
     post {
+        success {
+            echo "✅ Deployment completed successfully!"
+        }
+        failure {
+            echo "❌ Deployment failed. Check logs!"
+        }
         always {
-            echo 'Cleaning up Docker images...'
             sh 'docker image prune -af'
         }
     }
