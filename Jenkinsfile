@@ -109,6 +109,8 @@ trafficRoutingConfig:
     - name: webgoat-blue
     - name: webgoat-green
 """
+
+
                     writeFile file: 'appspec.yaml', text: appspec
                 }
             }
