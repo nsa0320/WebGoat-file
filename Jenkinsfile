@@ -51,7 +51,7 @@ pipeline {
             steps {
                 script {
                     def imageUri = "${ECR_REGISTRY}/${APP_REPO_NAME}:latest"
-                    writeFile file: 'imagedefinitions.json', text: """[
+                    writeFile file: 'imagedefinitions.json', text: """[ 
   {
     "name": "webgoat",
     "imageUri": "${imageUri}"
@@ -62,6 +62,28 @@ pipeline {
                     aws s3 cp imagedefinitions.json s3://codedeploy-files-nsa/imagedefinitions.json
                 '''
                 sleep(time: 3, unit: 'SECONDS')
+            }
+        }
+
+        stage('Zip and Upload for CodeDeploy') {
+            steps {
+                script {
+                    writeFile file: 'appspec.yaml', text: """version: 0.0
+Resources:
+  - TargetService:
+      Type: AWS::ECS::Service
+      Properties:
+        TaskDefinition: webgoat-dummy-task:1
+        LoadBalancerInfo:
+          ContainerName: webgoat
+          ContainerPort: 8080
+"""
+                }
+
+                sh '''
+                    zip webgoat-deploy.zip appspec.yaml imagedefinitions.json
+                    aws s3 cp webgoat-deploy.zip s3://codedeploy-files-nsa/webgoat-deploy.zip --region $AWS_REGION
+                '''
             }
         }
 
@@ -81,7 +103,7 @@ pipeline {
 
     post {
         always {
-            echo '🧼 Cleaning up Docker images...'
+            echo 'Cleaning up Docker images...'
             sh 'docker image prune -af'
         }
     }
