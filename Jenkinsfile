@@ -66,7 +66,7 @@ Resources:
       Properties:
         TaskDefinition: webgoat-dummy-task:1
         LoadBalancerInfo:
-          ContainerName: webgoat
+          ContainerName: dummy
           ContainerPort: 8080
 """
                 }
