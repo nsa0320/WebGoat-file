@@ -14,7 +14,8 @@ pipeline {
         CONTAINER_NAME = 'dummy'
         CONTAINER_PORT = 8080
         TASK_EXEC_ROLE = 'arn:aws:iam::341162387145:role/ecsTaskExecutionRole'
-        ECS_SERVICE_NAME = 'webgoat-dummy-task-service-rfvbclnr' // 변경된 ECS 서비스 이름
+        ECS_SERVICE_NAME = 'webgoat-dummy-task-service-rfvbclnr'
+        SEMGREP_APP_TOKEN = credentials('SEMGREP_APP_TOKEN') // ✅ 추가
     }
 
     stages {
@@ -23,6 +24,20 @@ pipeline {
                 git branch: 'develop',
                     url: 'https://github.com/nsa0320/WebGoat-file.git',
                     credentialsId: '1'
+            }
+        }
+
+        // ✅ 추가된 Semgrep 스캔 단계
+        stage('Semgrep Scan') {
+            steps {
+                sh '''
+                    docker pull semgrep/semgrep
+
+                    docker run \
+                      -e SEMGREP_APP_TOKEN=$SEMGREP_APP_TOKEN \
+                      -v "$(pwd):/src" --workdir /src \
+                      semgrep/semgrep semgrep ci
+                '''
             }
         }
 
@@ -140,5 +155,4 @@ Resources:
             echo '❌ Deployment failed. Check logs!'
         }
     }
-} 
-
+}
