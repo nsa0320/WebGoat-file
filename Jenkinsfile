@@ -15,7 +15,8 @@ pipeline {
         CONTAINER_PORT = 8080
         TASK_EXEC_ROLE = 'arn:aws:iam::341162387145:role/ecsTaskExecutionRole'
         ECS_SERVICE_NAME = 'webgoat-dummy-task-service-rfvbclnr'
-        SEMGREP_APP_TOKEN = credentials('SEMGREP_APP_TOKEN') // ✅ 추가
+        SEMGREP_SERVER = 'ec2-user@15.164.215.159'
+        SEMGREP_KEY = 'semgrep-fix-key'
     }
 
     stages {
@@ -27,20 +28,6 @@ pipeline {
             }
         }
 
-        // ✅ 추가된 Semgrep 스캔 단계
-        stage('Semgrep Scan') {
-            steps {
-                sh '''
-                    docker pull semgrep/semgrep
-
-                    docker run \
-                      -e SEMGREP_APP_TOKEN=$SEMGREP_APP_TOKEN \
-                      -v "$(pwd):/src" --workdir /src \
-                      semgrep/semgrep semgrep ci
-                '''
-            }
-        }
-
         stage('Build JAR') {
             steps {
                 sh 'mvn clean package -DskipTests'
@@ -49,9 +36,7 @@ pipeline {
 
         stage('Build Docker Image') {
             steps {
-                sh '''
-                    docker build --force-rm -t $ECR_REGISTRY/$APP_REPO_NAME:latest .
-                '''
+                sh 'docker build --force-rm -t $ECR_REGISTRY/$APP_REPO_NAME:latest .'
             }
         }
 
@@ -66,6 +51,40 @@ pipeline {
         stage('Push to ECR') {
             steps {
                 sh 'docker push $ECR_REGISTRY/$APP_REPO_NAME:latest'
+            }
+        }
+
+        // ✅ Semgrep 분석 스테이지
+        stage('Run Semgrep Security Scan') {
+            steps {
+                sshagent(["$SEMGREP_KEY"]) {
+                    sh """
+                        ssh -o StrictHostKeyChecking=no $SEMGREP_SERVER '
+                          rm -rf ~/code && mkdir -p ~/code
+                        '
+                        scp -o StrictHostKeyChecking=no -r * $SEMGREP_SERVER:~/code
+                        ssh -o StrictHostKeyChecking=no $SEMGREP_SERVER '
+                          docker run --rm -v ~/code:/src semgrep/semgrep semgrep scan --config auto --json > ~/code/result.json
+                        '
+                        scp -o StrictHostKeyChecking=no $SEMGREP_SERVER:~/code/result.json .
+                    """
+                }
+            }
+        }
+
+        // ✅ HTML 리포트 생성 + Jenkins 리포트 표시
+        stage('Generate & Publish Semgrep Report') {
+            steps {
+                sh 'python3 json_to_html.py'
+
+                publishHTML(target: [
+                    reportName : 'Semgrep Report',
+                    reportDir  : '.',
+                    reportFiles: 'report.html',
+                    keepAll    : true,
+                    alwaysLinkToLastBuild: true,
+                    allowMissing: false
+                ])
             }
         }
 
