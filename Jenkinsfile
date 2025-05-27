@@ -54,23 +54,23 @@ pipeline {
             }
         }
 
-        // ✅ Semgrep 분석 스테이지
-        stage('Run Semgrep Security Scan') {
-            steps {
-                sshagent(["$SEMGREP_KEY"]) {
-                    sh """
-                        ssh -o StrictHostKeyChecking=no $SEMGREP_SERVER '
-                          rm -rf ~/code && mkdir -p ~/code
-                        '
-                        scp -o StrictHostKeyChecking=no -r * $SEMGREP_SERVER:~/code
-                        ssh -o StrictHostKeyChecking=no $SEMGREP_SERVER '
-                          docker run --rm -v ~/code:/src semgrep/semgrep semgrep scan --config auto --json > ~/code/result.json
-                        '
-                        scp -o StrictHostKeyChecking=no $SEMGREP_SERVER:~/code/result.json .
-                    """
-                }
-            }
+// ✅ Semgrep 분석 스테이지 (XSS 경로만 스캔)
+stage('Run Semgrep Security Scan') {
+    steps {
+        sshagent(["$SEMGREP_KEY"]) {
+            sh """
+                ssh -o StrictHostKeyChecking=no $SEMGREP_SERVER '
+                  rm -rf ~/code && mkdir -p ~/code
+                '
+                scp -o StrictHostKeyChecking=no -r * $SEMGREP_SERVER:~/code
+                ssh -o StrictHostKeyChecking=no $SEMGREP_SERVER '
+                  docker run --rm -v ~/code:/src semgrep/semgrep semgrep scan --config auto /src/src/main/java/org/owasp/webgoat/lessons/xss --json > ~/code/result.json
+                '
+                scp -o StrictHostKeyChecking=no $SEMGREP_SERVER:~/code/result.json .
+            """
         }
+    }
+}
 
         // ✅ HTML 리포트 생성 + Jenkins 리포트 표시
         stage('Generate & Publish Semgrep Report') {
