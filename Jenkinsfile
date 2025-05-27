@@ -56,7 +56,7 @@ pipeline {
         sh '''
             export PYTHONPATH=/var/lib/jenkins/sarif-tools
             mkdir -p codeql-html
-            python3 -m sarif.tools.sarif_to_html codeql-report/codeql-result.sarif > codeql-html/index.html
+            python3 /var/lib/jenkins/sarif-tools/sarif/tools/sarif_to_html.py codeql-report/codeql-result.sarif > codeql-html/index.html
         '''
         publishHTML(target: [
             reportName: 'CodeQL Report',
