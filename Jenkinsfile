@@ -8,9 +8,6 @@ pipeline {
         ECR_REGISTRY = '341162387145.dkr.ecr.ap-northeast-2.amazonaws.com'
         APP_REPO_NAME = 'nsa'
         S3_BUCKET = 'webgoat-nsa'
-        DEPLOY_APP = 'webgoat-app'
-        DEPLOY_GROUP = 'webgoat-deploy-group'
-        BUNDLE_NAME = 'webgoat-deploy.zip'
         CONTAINER_NAME = 'dummy'
         CONTAINER_PORT = 8080
         TASK_EXEC_ROLE = 'arn:aws:iam::341162387145:role/ecsTaskExecutionRole'
@@ -54,7 +51,7 @@ pipeline {
             }
         }
 
-        // ✅ Semgrep 분석 스테이지 (SQL Injection 경로만 스캔)
+        // ✅ Semgrep 분석 스테이지 (HijackSession 경로만)
         stage('Run Semgrep Security Scan') {
             steps {
                 sshagent(["$SEMGREP_KEY"]) {
@@ -64,7 +61,7 @@ pipeline {
                         '
                         scp -o StrictHostKeyChecking=no -r * $SEMGREP_SERVER:~/code
                         ssh -o StrictHostKeyChecking=no $SEMGREP_SERVER '
-                          docker run --rm -v ~/code:/src semgrep/semgrep semgrep scan --config auto /src/src/main/java/org/owasp/webgoat/lessons/sqlinjection --json > ~/code/result.json
+                          docker run --rm -v ~/code:/src semgrep/semgrep semgrep scan --config auto /src/src/main/resources/lessons/hijacksession --json > ~/code/result.json
                         '
                         scp -o StrictHostKeyChecking=no $SEMGREP_SERVER:~/code/result.json .
                     """
@@ -72,7 +69,6 @@ pipeline {
             }
         }
 
-        // ✅ HTML 리포트 생성 + Jenkins 리포트 표시
         stage('Generate & Publish Semgrep Report') {
             steps {
                 sh 'python3 json_to_html.py'
