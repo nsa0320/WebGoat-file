@@ -15,7 +15,7 @@ pipeline {
         CONTAINER_PORT = 8080
         TASK_EXEC_ROLE = 'arn:aws:iam::341162387145:role/ecsTaskExecutionRole'
         ECS_SERVICE_NAME = 'webgoat-dummy-task-service-rfvbclnr'
-        SEMGREP_SERVER = 'ec2-user@15.164.215.159'
+        SEMGREP_SERVER = 'ec2-user@13.125.229.113'
         SEMGREP_KEY = 'semgrep-fix-key'
     }
 
