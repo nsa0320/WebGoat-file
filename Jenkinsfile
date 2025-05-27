@@ -52,11 +52,11 @@ pipeline {
 
         stage('Generate & Publish CodeQL Report') {
     steps {
-        sh '''
-            pip show sarif-tools >/dev/null 2>&1 || pip install sarif-tools --quiet
-            mkdir -p codeql-html
-            sarif-to-html codeql-report/codeql-result.sarif > codeql-html/index.html
-        '''
+       sh '''
+    python3 -m pip install --quiet --disable-pip-version-check sarif-tools
+    mkdir -p codeql-html
+    python3 -m sarif.tools.sarif_to_html codeql-report/codeql-result.sarif > codeql-html/index.html
+       '''
         publishHTML(target: [
             reportName: 'CodeQL Report',
             reportDir: 'codeql-html',
