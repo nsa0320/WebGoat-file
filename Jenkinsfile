@@ -50,6 +50,25 @@ pipeline {
             }
         }
 
+        stage('Generate & Publish CodeQL Report') {
+    steps {
+        sh '''
+            pip show sarif-tools >/dev/null 2>&1 || pip install sarif-tools --quiet
+            mkdir -p codeql-html
+            sarif-to-html codeql-report/codeql-result.sarif > codeql-html/index.html
+        '''
+        publishHTML(target: [
+            reportName: 'CodeQL Report',
+            reportDir: 'codeql-html',
+            reportFiles: 'index.html',
+            keepAll: true,
+            alwaysLinkToLastBuild: true,
+            allowMissing: false
+        ])
+    }
+}
+
+
         stage('Build Docker Image') {
             steps {
                 sh 'docker build --force-rm -t $ECR_REGISTRY/$APP_REPO_NAME:latest .'
