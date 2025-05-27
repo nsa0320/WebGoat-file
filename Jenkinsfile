@@ -51,24 +51,21 @@ pipeline {
         }
 
         stage('Generate & Publish CodeQL Report') {
-            steps {
-                sh '''
-                    export PATH=$PATH:$HOME/.local/bin
-                    export PYTHONPATH=$HOME/.local/lib/python3.9/site-packages:$PYTHONPATH
-                    python3 -m pip install --quiet --disable-pip-version-check --user sarif-tools
-                    mkdir -p codeql-html
-                    python3 -m sarif.tools.sarif_to_html codeql-report/codeql-result.sarif > codeql-html/index.html
-                '''
-                publishHTML(target: [
-                    reportName: 'CodeQL Report',
-                    reportDir: 'codeql-html',
-                    reportFiles: 'index.html',
-                    keepAll: true,
-                    alwaysLinkToLastBuild: true,
-                    allowMissing: false
-                ])
-            }
-        }
+    steps {
+        sh '''
+            mkdir -p codeql-html
+            /var/lib/jenkins/.local/bin/sarif-to-html codeql-report/codeql-result.sarif > codeql-html/index.html
+        '''
+        publishHTML(target: [
+            reportName: 'CodeQL Report',
+            reportDir: 'codeql-html',
+            reportFiles: 'index.html',
+            keepAll: true,
+            alwaysLinkToLastBuild: true,
+            allowMissing: false
+        ])
+    }
+}
     }
 
     post {
