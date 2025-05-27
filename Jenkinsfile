@@ -50,9 +50,6 @@ pipeline {
             }
         }
 
-        
-
-
         stage('Build Docker Image') {
             steps {
                 sh 'docker build --force-rm -t $ECR_REGISTRY/$APP_REPO_NAME:latest .'
@@ -66,25 +63,26 @@ pipeline {
                     | docker login --username AWS --password-stdin $ECR_REGISTRY
                 '''
             }
-        }stage('Generate & Publish CodeQL Report') {
-    steps {
-        sh '''
-            export PATH=$PATH:/var/lib/jenkins/.local/bin
-            python3 -m pip install --quiet --disable-pip-version-check --user sarif-tools
-            mkdir -p codeql-html
-            python3 -m sarif.tools.sarif_to_html codeql-report/codeql-result.sarif > codeql-html/index.html
-        '''
-        publishHTML(target: [
-            reportName: 'CodeQL Report',
-            reportDir: 'codeql-html',
-            reportFiles: 'index.html',
-            keepAll: true,
-            alwaysLinkToLastBuild: true,
-            allowMissing: false
-        ])
-    }
-}
+        }
 
+        stage('Generate & Publish CodeQL Report') {
+            steps {
+                sh '''
+                    export PATH=$PATH:/var/lib/jenkins/.local/bin
+                    python3 -m pip install --quiet --disable-pip-version-check --user sarif-tools
+                    mkdir -p codeql-html
+                    python3 -m sarif.tools.sarif_to_html codeql-report/codeql-result.sarif > codeql-html/index.html
+                '''
+                publishHTML(target: [
+                    reportName: 'CodeQL Report',
+                    reportDir: 'codeql-html',
+                    reportFiles: 'index.html',
+                    keepAll: true,
+                    alwaysLinkToLastBuild: true,
+                    allowMissing: false
+                ])
+            }
+        }
 
         stage('Push to ECR') {
             steps {
