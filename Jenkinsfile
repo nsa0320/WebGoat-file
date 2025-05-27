@@ -2,11 +2,8 @@ pipeline {
     agent any
 
     environment {
-        AWS_REGION = 'ap-northeast-2'
-        AWS_ACCESS_KEY_ID = credentials('ecr-login')
-        AWS_SECRET_ACCESS_KEY = credentials('ecr-login')
-        ECR_REGISTRY = '341162387145.dkr.ecr.ap-northeast-2.amazonaws.com'
-        APP_REPO_NAME = 'nsa'
+        CODEQL_PATH = '/opt/codeql/codeql'
+        CODEQL_REPO = '/opt/codeql-repo'
     }
 
     stages {
@@ -18,18 +15,18 @@ pipeline {
             }
         }
 
-        stage('Build JAR') {
+        stage('Build JAR for CodeQL DB') {
             steps {
-                sh 'mvn clean package -DskipTests'
+                sh 'mvn clean compile -DskipTests'
             }
         }
 
-        stage('Run CodeQL Create DB') {
+        stage('Create CodeQL Database') {
             steps {
                 sh '''
                     rm -rf codeql-db
                     mkdir -p codeql-db
-                    /opt/codeql/codeql database create codeql-db \
+                    ${CODEQL_PATH} database create codeql-db \
                       --language=java \
                       --command="mvn clean compile -DskipTests" \
                       --source-root=.
@@ -37,12 +34,12 @@ pipeline {
             }
         }
 
-        stage('Run CodeQL Analysis') {
+        stage('Analyze with CodeQL') {
             steps {
                 sh '''
                     mkdir -p codeql-report
-                    /opt/codeql/codeql database analyze codeql-db \
-                      /opt/codeql-repo/java/ql/src/codeql-suites/java-code-scanning.qls \
+                    ${CODEQL_PATH} database analyze codeql-db \
+                      ${CODEQL_REPO}/java/ql/src/codeql-suites/java-code-scanning.qls \
                       --format=sarifv2.1.0 \
                       --output=codeql-report/codeql-result.sarif \
                       --ram=3000
@@ -50,57 +47,37 @@ pipeline {
             }
         }
 
-        stage('Build Docker Image') {
-            steps {
-                sh 'docker build --force-rm -t $ECR_REGISTRY/$APP_REPO_NAME:latest .'
-            }
-        }
-
-        stage('Login to ECR') {
-            steps {
-                sh '''
-                    aws ecr get-login-password --region $AWS_REGION \
-                    | docker login --username AWS --password-stdin $ECR_REGISTRY
-                '''
-            }
-        }
-
-        stage('Generate & Publish CodeQL Report') {
+        stage('Generate HTML Report') {
             steps {
                 sh '''
                     export PATH=$PATH:/var/lib/jenkins/.local/bin
-                    python3 -m pip install --quiet --disable-pip-version-check --user sarif-tools
+                    python3 -m pip install --user --quiet --disable-pip-version-check sarif-tools || true
                     mkdir -p codeql-html
                     python3 -m sarif.tools.sarif_to_html codeql-report/codeql-result.sarif > codeql-html/index.html
                 '''
+            }
+        }
+
+        stage('Publish Report') {
+            steps {
                 publishHTML(target: [
-                    reportName: 'CodeQL Report',
-                    reportDir: 'codeql-html',
+                    reportName : 'CodeQL Report',
+                    reportDir  : 'codeql-html',
                     reportFiles: 'index.html',
-                    keepAll: true,
+                    keepAll    : true,
                     alwaysLinkToLastBuild: true,
                     allowMissing: false
                 ])
             }
         }
-
-        stage('Push to ECR') {
-            steps {
-                sh 'docker push $ECR_REGISTRY/$APP_REPO_NAME:latest'
-            }
-        }
     }
 
     post {
-        always {
-            echo '🧹 Cleaning up local Docker images...'
-            sh 'docker image prune -af'
-        }
         success {
-            echo '✅ Build, scan, and push to ECR completed!'
+            echo '✅ CodeQL 분석과 리포트 생성 완료!'
         }
         failure {
-            echo '❌ Pipeline failed. Check logs!'
+            echo '❌ 실패! 로그 확인 필요.'
         }
     }
 }
