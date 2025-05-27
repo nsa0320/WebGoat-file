@@ -54,23 +54,23 @@ pipeline {
             }
         }
 
-// ✅ Semgrep 분석 스테이지 (XSS 경로만 스캔)
-stage('Run Semgrep Security Scan') {
-    steps {
-        sshagent(["$SEMGREP_KEY"]) {
-            sh """
-                ssh -o StrictHostKeyChecking=no $SEMGREP_SERVER '
-                  rm -rf ~/code && mkdir -p ~/code
-                '
-                scp -o StrictHostKeyChecking=no -r * $SEMGREP_SERVER:~/code
-                ssh -o StrictHostKeyChecking=no $SEMGREP_SERVER '
-                  docker run --rm -v ~/code:/src semgrep/semgrep semgrep scan --config auto /src/src/main/java/org/owasp/webgoat/lessons/xss --json > ~/code/result.json
-                '
-                scp -o StrictHostKeyChecking=no $SEMGREP_SERVER:~/code/result.json .
-            """
+        // ✅ Semgrep 분석 스테이지 (SQL Injection 경로만 스캔)
+        stage('Run Semgrep Security Scan') {
+            steps {
+                sshagent(["$SEMGREP_KEY"]) {
+                    sh """
+                        ssh -o StrictHostKeyChecking=no $SEMGREP_SERVER '
+                          rm -rf ~/code && mkdir -p ~/code
+                        '
+                        scp -o StrictHostKeyChecking=no -r * $SEMGREP_SERVER:~/code
+                        ssh -o StrictHostKeyChecking=no $SEMGREP_SERVER '
+                          docker run --rm -v ~/code:/src semgrep/semgrep semgrep scan --config auto /src/src/main/java/org/owasp/webgoat/lessons/sqlinjection --json > ~/code/result.json
+                        '
+                        scp -o StrictHostKeyChecking=no $SEMGREP_SERVER:~/code/result.json .
+                    """
+                }
+            }
         }
-    }
-}
 
         // ✅ HTML 리포트 생성 + Jenkins 리포트 표시
         stage('Generate & Publish Semgrep Report') {
@@ -85,79 +85,6 @@ stage('Run Semgrep Security Scan') {
                     alwaysLinkToLastBuild: true,
                     allowMissing: false
                 ])
-            }
-        }
-
-        stage('Generate taskdef.json and appspec.yaml') {
-            steps {
-                script {
-                    def imageUri = "${ECR_REGISTRY}/${APP_REPO_NAME}:latest"
-
-                    def taskdef = """{
-  "family": "webgoat-taskdef",
-  "networkMode": "awsvpc",
-  "containerDefinitions": [
-    {
-      "name": "${CONTAINER_NAME}",
-      "image": "${imageUri}",
-      "memory": 512,
-      "cpu": 256,
-      "essential": true,
-      "portMappings": [
-        {
-          "containerPort": ${CONTAINER_PORT},
-          "protocol": "tcp"
-        }
-      ]
-    }
-  ],
-  "requiresCompatibilities": ["FARGATE"],
-  "cpu": "256",
-  "memory": "512",
-  "executionRoleArn": "${TASK_EXEC_ROLE}"
-}"""
-                    writeFile file: 'taskdef.json', text: taskdef
-
-                    def taskDefArn = sh(
-                        script: "aws ecs register-task-definition --cli-input-json file://taskdef.json --query 'taskDefinition.taskDefinitionArn' --region $AWS_REGION --output text",
-                        returnStdout: true
-                    ).trim()
-
-                    def appspec = """version: 1
-Resources:
-  - TargetService:
-      Type: AWS::ECS::Service
-      Properties:
-        TaskDefinition: "${taskDefArn}"
-        LoadBalancerInfo:
-          ContainerName: "${CONTAINER_NAME}"
-          ContainerPort: ${CONTAINER_PORT}
-        PlatformVersion: "LATEST"
-"""
-                    writeFile file: 'appspec.yaml', text: appspec
-                }
-            }
-        }
-
-        stage('Zip and Upload for CodeDeploy') {
-            steps {
-                sh '''
-                    zip $BUNDLE_NAME appspec.yaml taskdef.json
-                    aws s3 cp $BUNDLE_NAME s3://$S3_BUCKET/$BUNDLE_NAME --region $AWS_REGION
-                '''
-            }
-        }
-
-        stage('Trigger CodeDeploy') {
-            steps {
-                sh '''
-                    aws deploy create-deployment \
-                      --application-name $DEPLOY_APP \
-                      --deployment-group-name $DEPLOY_GROUP \
-                      --deployment-config-name CodeDeployDefault.ECSAllAtOnce \
-                      --s3-location bucket=$S3_BUCKET,bundleType=zip,key=$BUNDLE_NAME \
-                      --region $AWS_REGION
-                '''
             }
         }
     }
