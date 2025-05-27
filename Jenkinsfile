@@ -45,7 +45,7 @@ pipeline {
                       /opt/codeql-repo/java/ql/src/codeql-suites/java-code-scanning.qls \
                       --format=sarifv2.1.0 \
                       --output=codeql-report/codeql-result.sarif \
-                      --ram=2000
+                      --ram=3000
                 '''
             }
         }
