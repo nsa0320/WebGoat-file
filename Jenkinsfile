@@ -7,6 +7,7 @@ pipeline {
         AWS_SECRET_ACCESS_KEY = credentials('ecr-login')
         ECR_REGISTRY = '341162387145.dkr.ecr.ap-northeast-2.amazonaws.com'
         APP_REPO_NAME = 'nsa'
+        PYTHONPATH = '/var/lib/jenkins/sarif-tools'  // ✅ 핵심 추가
     }
 
     stages {
@@ -54,7 +55,7 @@ pipeline {
             steps {
                 sh '''
                     mkdir -p codeql-html
-                    /opt/codeql/codeql generate report --format=html --output=codeql-html codeql-report/codeql-result.sarif
+                    python3 -m sarif.tools.sarif_to_html codeql-report/codeql-result.sarif > codeql-html/index.html
                 '''
                 publishHTML(target: [
                     reportName: 'CodeQL Report',
