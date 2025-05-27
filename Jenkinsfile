@@ -51,21 +51,21 @@ pipeline {
         }
 
         stage('Generate & Publish CodeQL Report') {
-    steps {
-        sh '''
-            mkdir -p codeql-html
-            /var/lib/jenkins/.local/bin/sarif-to-html codeql-report/codeql-result.sarif > codeql-html/index.html
-        '''
-        publishHTML(target: [
-            reportName: 'CodeQL Report',
-            reportDir: 'codeql-html',
-            reportFiles: 'index.html',
-            keepAll: true,
-            alwaysLinkToLastBuild: true,
-            allowMissing: false
-        ])
-    }
-}
+            steps {
+                sh '''
+                    mkdir -p codeql-html
+                    /opt/codeql/codeql generate report --format=html --output=codeql-html codeql-report/codeql-result.sarif
+                '''
+                publishHTML(target: [
+                    reportName: 'CodeQL Report',
+                    reportDir: 'codeql-html',
+                    reportFiles: 'index.html',
+                    keepAll: true,
+                    alwaysLinkToLastBuild: true,
+                    allowMissing: false
+                ])
+            }
+        }
     }
 
     post {
