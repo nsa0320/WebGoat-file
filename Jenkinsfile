@@ -2,8 +2,7 @@ pipeline {
     agent any
 
     environment {
-        SEMGREP_SERVER = 'ec2-user@13.125.229.113'
-        SEMGREP_KEY = 'semgrep-fix-key'
+        SEMGREP_IMAGE = 'semgrep/semgrep'  // 공식 Semgrep Docker 이미지
     }
 
     stages {
@@ -15,30 +14,30 @@ pipeline {
             }
         }
 
-        stage('Run Semgrep on SqlInjectionLesson only') {
+        stage('Run Semgrep (local, limited path)') {
             steps {
-                sshagent(["$SEMGREP_KEY"]) {
-                    sh """
-                        ssh -o StrictHostKeyChecking=no $SEMGREP_SERVER '
-                          rm -rf ~/code && mkdir -p ~/code
-                        '
-                        scp -o StrictHostKeyChecking=no src/main/java/org/owasp/webgoat/sqlinjection/SqlInjectionLesson.java $SEMGREP_SERVER:~/code/
-                        ssh -o StrictHostKeyChecking=no $SEMGREP_SERVER '
-                          docker run --rm -v ~/code:/src semgrep/semgrep semgrep scan --config auto --json > ~/code/result.json
-                        '
-                        scp -o StrictHostKeyChecking=no $SEMGREP_SERVER:~/code/result.json .
-                    """
-                }
+                sh '''
+                    rm -rf semgrep-output || true
+                    mkdir -p semgrep-output
+
+                    docker run --rm \
+                      -v "$(pwd)/src/main/java/org/owasp/webgoat/lessons/sqlinjection":/src \
+                      -v "$(pwd)/semgrep-output":/output \
+                      semgrep/semgrep \
+                      scan --config auto /src --json > semgrep-output/result.json
+                '''
             }
         }
 
         stage('Generate & Publish Semgrep Report') {
             steps {
-                sh 'python3 json_to_html.py'
+                sh '''
+                    python3 json_to_html.py semgrep-output/result.json > semgrep-output/report.html
+                '''
 
                 publishHTML(target: [
-                    reportName : 'Semgrep Report - SqlInjectionLesson Only',
-                    reportDir  : '.',
+                    reportName : 'Semgrep Report - sqlinjection only',
+                    reportDir  : 'semgrep-output',
                     reportFiles: 'report.html',
                     keepAll    : true,
                     alwaysLinkToLastBuild: true,
@@ -50,10 +49,10 @@ pipeline {
 
     post {
         success {
-            echo '✅ Semgrep scan for SqlInjectionLesson completed!'
+            echo '✅ Semgrep local scan completed!'
         }
         failure {
-            echo '❌ Semgrep scan failed.'
+            echo '❌ Semgrep scan failed!'
         }
     }
 }
