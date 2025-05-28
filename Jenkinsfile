@@ -15,15 +15,14 @@ pipeline {
             }
         }
 
-        // ✅ Semgrep 특정 경로 스캔
-        stage('Run Semgrep on hijacksession only') {
+        stage('Run Semgrep on SqlInjectionLesson only') {
             steps {
                 sshagent(["$SEMGREP_KEY"]) {
                     sh """
                         ssh -o StrictHostKeyChecking=no $SEMGREP_SERVER '
                           rm -rf ~/code && mkdir -p ~/code
                         '
-                        scp -o StrictHostKeyChecking=no -r src/src/main/resources/lessons/hijacksession $SEMGREP_SERVER:~/code/
+                        scp -o StrictHostKeyChecking=no src/main/java/org/owasp/webgoat/sqlinjection/SqlInjectionLesson.java $SEMGREP_SERVER:~/code/
                         ssh -o StrictHostKeyChecking=no $SEMGREP_SERVER '
                           docker run --rm -v ~/code:/src semgrep/semgrep semgrep scan --config auto --json > ~/code/result.json
                         '
@@ -33,13 +32,12 @@ pipeline {
             }
         }
 
-        // ✅ HTML 변환 및 리포트 출력
         stage('Generate & Publish Semgrep Report') {
             steps {
                 sh 'python3 json_to_html.py'
 
                 publishHTML(target: [
-                    reportName : 'Semgrep Report - hijacksession only',
+                    reportName : 'Semgrep Report - SqlInjectionLesson Only',
                     reportDir  : '.',
                     reportFiles: 'report.html',
                     keepAll    : true,
@@ -52,11 +50,10 @@ pipeline {
 
     post {
         success {
-            echo '✅ Semgrep scan (limited path) succeeded!'
+            echo '✅ Semgrep scan for SqlInjectionLesson completed!'
         }
         failure {
             echo '❌ Semgrep scan failed.'
         }
     }
 }
-
