@@ -14,20 +14,20 @@ pipeline {
             }
         }
 
-        stage('Run Semgrep (local, limited path)') {
-            steps {
-                sh '''
-                    rm -rf semgrep-output || true
-                    mkdir -p semgrep-output
+       stage('Run Semgrep (local, limited path)') {
+    steps {
+        sh '''
+            rm -rf semgrep-output || true
+            mkdir -p semgrep-output
 
-                    docker run --rm \
-                      -v "$(pwd)/src/main/java/org/owasp/webgoat/lessons/sqlinjection":/src \
-                      -v "$(pwd)/semgrep-output":/output \
-                      semgrep/semgrep \
-                      scan --config auto /src --json > semgrep-output/result.json
-                '''
-            }
-        }
+            docker run --rm \
+              -v "$(pwd)/src/main/java/org/owasp/webgoat/lessons/sqlinjection":/src \
+              -v "$(pwd)/semgrep-output":/output \
+              semgrep/semgrep \
+              semgrep scan --config auto /src --json > /output/result.json
+        '''
+    }
+}
 
         stage('Generate & Publish Semgrep Report') {
             steps {
