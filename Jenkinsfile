@@ -20,11 +20,12 @@ pipeline {
             rm -rf semgrep-output || true
             mkdir -p semgrep-output
 
-            docker run --rm \
-              -v "$(pwd)/src/main/java/org/owasp/webgoat/lessons/sqlinjection":/src \
-              -v "$(pwd)/semgrep-output":/output \
+           docker run --rm \
+              -v "/var/lib/jenkins/workspace/de/src/main/java/org/owasp/webgoat/lessons/sqlinjection":/src \
+              -v "/var/lib/jenkins/workspace/de/semgrep-output":/output \
               semgrep/semgrep \
               semgrep scan --config auto /src --json --output /output/result.json
+
         '''
     }
 }
