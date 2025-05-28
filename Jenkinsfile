@@ -14,21 +14,20 @@ pipeline {
             }
         }
 
-       stage('Run Semgrep (local, limited path)') {
-    steps {
-        sh '''
-            rm -rf semgrep-output || true
-            mkdir -p semgrep-output
+        stage('Run Semgrep (full scan)') {
+            steps {
+                sh '''
+                    rm -rf semgrep-output || true
+                    mkdir -p semgrep-output
 
-           docker run --rm \
-              -v "/var/lib/jenkins/workspace/de/src/main/java/org/owasp/webgoat/lessons/sqlinjection":/src \
-              -v "/var/lib/jenkins/workspace/de/semgrep-output":/output \
-              semgrep/semgrep \
-              semgrep scan --config auto /src --json --output /output/result.json
-
-        '''
-    }
-}
+                    docker run --rm \
+                      -v "$PWD":/src \
+                      -v "$PWD/semgrep-output":/output \
+                      ${SEMGREP_IMAGE} \
+                      semgrep scan --config auto /src --json --output /output/result.json
+                '''
+            }
+        }
 
         stage('Generate & Publish Semgrep Report') {
             steps {
@@ -37,7 +36,7 @@ pipeline {
                 '''
 
                 publishHTML(target: [
-                    reportName : 'Semgrep Report - sqlinjection only',
+                    reportName : 'Semgrep Report - full scan',
                     reportDir  : 'semgrep-output',
                     reportFiles: 'report.html',
                     keepAll    : true,
@@ -50,7 +49,7 @@ pipeline {
 
     post {
         success {
-            echo '✅ Semgrep local scan completed!'
+            echo '✅ Semgrep full scan completed!'
         }
         failure {
             echo '❌ Semgrep scan failed!'
