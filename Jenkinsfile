@@ -2,11 +2,8 @@ pipeline {
     agent any
 
     environment {
-        AWS_REGION = 'ap-northeast-2'
-        AWS_ACCESS_KEY_ID = credentials('ecr-login')
-        AWS_SECRET_ACCESS_KEY = credentials('ecr-login')
-        ECR_REGISTRY = '341162387145.dkr.ecr.ap-northeast-2.amazonaws.com'
-        APP_REPO_NAME = 'nsa'
+        SEMGREP_SERVER = 'ec2-user@13.125.229.113'
+        SEMGREP_KEY = 'semgrep-fix-key'
     }
 
     stages {
@@ -18,50 +15,47 @@ pipeline {
             }
         }
 
-        stage('Build JAR') {
+        // ✅ Semgrep 특정 경로 스캔
+        stage('Run Semgrep on hijacksession only') {
             steps {
-                sh 'mvn clean package -DskipTests'
-            }
-        }
-
-        stage('CodeQL Analysis') {
-            steps {
-                withCodeQL(codeql: 'CodeQL 2.21.4') {
-                    sh '''
-                        rm -rf codeql-db codeql-report
-                        codeql database create codeql-db \
-                          --language=java \
-                          --command="mvn clean compile -DskipTests" \
-                          --source-root=.
-                        
-                        mkdir -p codeql-report
-                        codeql database analyze codeql-db \
-                          /opt/codeql-repo/java/ql/src/codeql-suites/java-code-scanning.qls \
-                          --format=sarifv2.1.0 \
-                          --output=codeql-report/codeql-result.sarif \
-                          --ram=3000
-                    '''
+                sshagent(["$SEMGREP_KEY"]) {
+                    sh """
+                        ssh -o StrictHostKeyChecking=no $SEMGREP_SERVER '
+                          rm -rf ~/code && mkdir -p ~/code
+                        '
+                        scp -o StrictHostKeyChecking=no -r src/src/main/resources/lessons/hijacksession $SEMGREP_SERVER:~/code/
+                        ssh -o StrictHostKeyChecking=no $SEMGREP_SERVER '
+                          docker run --rm -v ~/code:/src semgrep/semgrep semgrep scan --config auto --json > ~/code/result.json
+                        '
+                        scp -o StrictHostKeyChecking=no $SEMGREP_SERVER:~/code/result.json .
+                    """
                 }
             }
         }
 
-        stage('Archive SARIF') {
+        // ✅ HTML 변환 및 리포트 출력
+        stage('Generate & Publish Semgrep Report') {
             steps {
-                archiveArtifacts artifacts: 'codeql-report/codeql-result.sarif', fingerprint: true
+                sh 'python3 json_to_html.py'
+
+                publishHTML(target: [
+                    reportName : 'Semgrep Report - hijacksession only',
+                    reportDir  : '.',
+                    reportFiles: 'report.html',
+                    keepAll    : true,
+                    alwaysLinkToLastBuild: true,
+                    allowMissing: false
+                ])
             }
         }
     }
 
     post {
-        always {
-            echo '🧹 Cleaning up...'
-            sh 'rm -rf codeql-db'
-        }
         success {
-            echo '✅ CodeQL scan completed and SARIF archived!'
+            echo '✅ Semgrep scan (limited path) succeeded!'
         }
         failure {
-            echo '❌ Pipeline failed!'
+            echo '❌ Semgrep scan failed.'
         }
     }
 }
