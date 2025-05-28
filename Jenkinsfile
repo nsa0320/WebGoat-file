@@ -7,7 +7,6 @@ pipeline {
         AWS_SECRET_ACCESS_KEY = credentials('ecr-login')
         ECR_REGISTRY = '341162387145.dkr.ecr.ap-northeast-2.amazonaws.com'
         APP_REPO_NAME = 'nsa'
-        PYTHONPATH = '/var/lib/jenkins/sarif-tools'  // ✅ 핵심 추가
     }
 
     stages {
@@ -25,61 +24,45 @@ pipeline {
             }
         }
 
-        stage('Run CodeQL Create DB') {
+        stage('CodeQL Analysis') {
             steps {
-                sh '''
-                    rm -rf codeql-db
-                    mkdir -p codeql-db
-                    /opt/codeql/codeql database create codeql-db \
-                      --language=java \
-                      --command="mvn clean compile -DskipTests" \
-                      --source-root=.
-                '''
+                withCodeQL(codeql: 'CodeQL 2.21.4') {
+                    sh '''
+                        rm -rf codeql-db codeql-report
+                        codeql database create codeql-db \
+                          --language=java \
+                          --command="mvn clean compile -DskipTests" \
+                          --source-root=.
+                        
+                        mkdir -p codeql-report
+                        codeql database analyze codeql-db \
+                          /opt/codeql-repo/java/ql/src/codeql-suites/java-code-scanning.qls \
+                          --format=sarifv2.1.0 \
+                          --output=codeql-report/codeql-result.sarif \
+                          --ram=3000
+                    '''
+                }
             }
         }
 
-        stage('Run CodeQL Analysis') {
+        stage('Archive SARIF') {
             steps {
-                sh '''
-                    mkdir -p codeql-report
-                    /opt/codeql/codeql database analyze codeql-db \
-                      /opt/codeql-repo/java/ql/src/codeql-suites/java-code-scanning.qls \
-                      --format=sarifv2.1.0 \
-                      --output=codeql-report/codeql-result.sarif \
-                      --ram=3000
-                '''
+                archiveArtifacts artifacts: 'codeql-report/codeql-result.sarif', fingerprint: true
             }
         }
-
-       stage('Generate & Publish CodeQL Report') {
-    steps {
-        sh '''
-            export PYTHONPATH=/var/lib/jenkins/sarif-tools
-            mkdir -p codeql-html
-            python3 /var/lib/jenkins/sarif-tools/sarif/tools/sarif_to_html.py codeql-report/codeql-result.sarif > codeql-html/index.html
-        '''
-        publishHTML(target: [
-            reportName: 'CodeQL Report',
-            reportDir: 'codeql-html',
-            reportFiles: 'index.html',
-            keepAll: true,
-            alwaysLinkToLastBuild: true,
-            allowMissing: false
-        ])
-    }
-}
     }
 
     post {
         always {
-            echo '🧹 Cleaning up CodeQL database and report folders...'
-            sh 'rm -rf codeql-db codeql-report'
+            echo '🧹 Cleaning up...'
+            sh 'rm -rf codeql-db'
         }
         success {
-            echo '✅ CodeQL scan and HTML report completed!'
+            echo '✅ CodeQL scan completed and SARIF archived!'
         }
         failure {
-            echo '❌ Pipeline failed. Check logs!'
+            echo '❌ Pipeline failed!'
         }
     }
 }
+
