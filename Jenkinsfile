@@ -14,6 +14,23 @@ pipeline {
             }
         }
 
+        stage('Run Semgrep (with timing)') {
+    steps {
+        sh '''
+            echo "[🔄] 시작 시간 측정"
+            START=$(date +%s)
+
+            docker run --rm \
+              -v "$PWD":/src \
+              -v "$PWD/semgrep-output":/output \
+              semgrep/semgrep \
+              semgrep scan --config auto /src --json --output /output/result.json
+
+            END=$(date +%s)
+            echo "[⏱] Semgrep 실행 시간: $((END - START))초"
+        '''
+    }
+}
         stage('Run Semgrep (full scan)') {
             steps {
                 sh '''
