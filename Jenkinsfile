@@ -24,7 +24,7 @@ pipeline {
               -v "$(pwd)/src/main/java/org/owasp/webgoat/lessons/sqlinjection":/src \
               -v "$(pwd)/semgrep-output":/output \
               semgrep/semgrep \
-              semgrep scan --config auto /src --json > /output/result.json
+              semgrep scan --config auto /src --json --output /output/result.json
         '''
     }
 }
