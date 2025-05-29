@@ -2,7 +2,19 @@ pipeline {
     agent any
 
     environment {
-        SEMGREP_IMAGE = 'semgrep/semgrep'  // 공식 Semgrep Docker 이미지
+        AWS_REGION = 'ap-northeast-2'
+        AWS_ACCESS_KEY_ID = credentials('ecr-login')
+        AWS_SECRET_ACCESS_KEY = credentials('ecr-login')
+        ECR_REGISTRY = '341162387145.dkr.ecr.ap-northeast-2.amazonaws.com'
+        APP_REPO_NAME = 'nsa'
+        S3_BUCKET = 'webgoat-nsa'
+        DEPLOY_APP = 'webgoat-app'
+        DEPLOY_GROUP = 'webgoat-deploy-group'
+        BUNDLE_NAME = 'webgoat-deploy.zip'
+        CONTAINER_NAME = 'dummy'
+        CONTAINER_PORT = 8080
+        TASK_EXEC_ROLE = 'arn:aws:iam::341162387145:role/ecsTaskExecutionRole'
+        ECS_SERVICE_NAME = 'webgoat-dummy-task-service-rfvbclnr'
     }
 
     stages {
@@ -14,62 +26,119 @@ pipeline {
             }
         }
 
-        stage('Run Semgrep (with timing)') {
-    steps {
-        sh '''
-            echo "[🔄] 시작 시간 측정"
-            START=$(date +%s)
-
-            docker run --rm \
-              -v "$PWD":/src \
-              -v "$PWD/semgrep-output":/output \
-              semgrep/semgrep \
-              semgrep scan --config auto /src --json --output /output/result.json
-
-            END=$(date +%s)
-            echo "[⏱] Semgrep 실행 시간: $((END - START))초"
-        '''
-    }
-}
-        stage('Run Semgrep (full scan)') {
+        stage('Semgrep Analysis via Lambda') {
             steps {
                 sh '''
-                    rm -rf semgrep-output || true
-                    mkdir -p semgrep-output
+                    echo "[📦] 소스코드 압축 중..."
+                    zip -r source.zip . -x "*.git*" "*.idea*" "target/*"
 
-                    docker run --rm \
-                      -v "$PWD":/src \
-                      -v "$PWD/semgrep-output":/output \
-                      ${SEMGREP_IMAGE} \
-                      semgrep scan --config auto /src --json --output /output/result.json
+                    echo "[☁️] S3에 업로드 중..."
+                    aws s3 cp source.zip s3://$S3_BUCKET/source.zip
+
+                    echo "[🚀] Lambda로 Semgrep 실행 요청 중..."
+                    aws lambda invoke \
+                      --function-name trigger-semgrep-analysis-ssm \
+                      --payload '{"s3_key":"source.zip"}' \
+                      --region $AWS_REGION \
+                      --cli-binary-format raw-in-base64-out \
+                      lambda_output.json
+
+                    echo "[📄] Lambda 응답 내용:"
+                    cat lambda_output.json
                 '''
             }
         }
 
-        stage('Generate & Publish Semgrep Report') {
+        stage('Build JAR') {
             steps {
-                sh '''
-                    python3 json_to_html.py semgrep-output/result.json > semgrep-output/report.html
-                '''
-
-                publishHTML(target: [
-                    reportName : 'Semgrep Report - full scan',
-                    reportDir  : 'semgrep-output',
-                    reportFiles: 'report.html',
-                    keepAll    : true,
-                    alwaysLinkToLastBuild: true,
-                    allowMissing: false
-                ])
+                sh 'mvn clean package -DskipTests'
             }
         }
-    }
 
-    post {
-        success {
-            echo '✅ Semgrep full scan completed!'
+        stage('Build Docker Image') {
+            steps {
+                sh '''
+                    docker build --force-rm -t $ECR_REGISTRY/$APP_REPO_NAME:latest .
+                '''
+            }
         }
-        failure {
-            echo '❌ Semgrep scan failed!'
+
+        stage('Login to ECR') {
+            steps {
+                sh '''
+                    aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
+                '''
+            }
         }
+
+        stage('Push to ECR') {
+            steps {
+                sh 'docker push $ECR_REGISTRY/$APP_REPO_NAME:latest'
+            }
+        }
+
+        stage('Generate taskdef.json and appspec.yaml') {
+            steps {
+                script {
+                    def imageUri = "${ECR_REGISTRY}/${APP_REPO_NAME}:latest"
+
+                    def taskdef = """{
+  "family": "webgoat-taskdef",
+  "networkMode": "awsvpc",
+  "containerDefinitions": [
+    {
+      "name": "${CONTAINER_NAME}",
+      "image": "${imageUri}",
+      "memory": 512,
+      "cpu": 256,
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": ${CONTAINER_PORT},
+          "protocol": "tcp"
+        }
+      ]
     }
-}
+  ],
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "256",
+  "memory": "512",
+  "executionRoleArn": "${TASK_EXEC_ROLE}"
+}"""
+                    writeFile file: 'taskdef.json', text: taskdef
+
+                    def taskDefArn = sh(
+                        script: "aws ecs register-task-definition --cli-input-json file://taskdef.json --query 'taskDefinition.taskDefinitionArn' --region $AWS_REGION --output text",
+                        returnStdout: true
+                    ).trim()
+
+                    def appspec = """version: 1
+Resources:
+  - TargetService:
+      Type: AWS::ECS::Service
+      Properties:
+        TaskDefinition: "${taskDefArn}"
+        LoadBalancerInfo:
+          ContainerName: "${CONTAINER_NAME}"
+          ContainerPort: ${CONTAINER_PORT}
+        PlatformVersion: "LATEST"
+"""
+                    writeFile file: 'appspec.yaml', text: appspec
+                }
+            }
+        }
+
+        stage('Zip and Upload for CodeDeploy') {
+            steps {
+                sh '''
+                    zip $BUNDLE_NAME appspec.yaml taskdef.json
+                    aws s3 cp $BUNDLE_NAME s3://$S3_BUCKET/$BUNDLE_NAME --region $AWS_REGION
+                '''
+            }
+        }
+
+        stage('Trigger CodeDeploy') {
+            steps {
+                sh '''
+                    aws deploy creat
+
