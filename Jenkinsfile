@@ -70,12 +70,15 @@ pipeline {
             }
         }
 
-        stage('Publish Semgrep Report') {
+                stage('Publish Semgrep Report') {
             steps {
                 publishHTML([
                     reportDir: '.', 
                     reportFiles: 'semgrep-report.html', 
-                    reportName: 'Semgrep 분석 리포트'
+                    reportName: 'Semgrep 분석 리포트',
+                    keepAll: true,
+                    alwaysLinkToLastBuild: true,
+                    allowMissing: false
                 ])
             }
         }
