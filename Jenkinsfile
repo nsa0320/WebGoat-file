@@ -8,13 +8,8 @@ pipeline {
         ECR_REGISTRY = '341162387145.dkr.ecr.ap-northeast-2.amazonaws.com'
         APP_REPO_NAME = 'nsa'
         S3_BUCKET = 'webgoat-nsa'
-        DEPLOY_APP = 'webgoat-app'
-        DEPLOY_GROUP = 'webgoat-deploy-group'
-        BUNDLE_NAME = 'webgoat-deploy.zip'
         CONTAINER_NAME = 'dummy'
         CONTAINER_PORT = 8080
-        TASK_EXEC_ROLE = 'arn:aws:iam::341162387145:role/ecsTaskExecutionRole'
-        ECS_SERVICE_NAME = 'webgoat-dummy-task-service-rfvbclnr'
     }
 
     stages {
@@ -62,83 +57,18 @@ pipeline {
                 '''
             }
         }
-
-        stage('Login to ECR') {
-            steps {
-                sh '''
-                    aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
-                '''
-            }
-        }
-
-        stage('Push to ECR') {
-            steps {
-                sh 'docker push $ECR_REGISTRY/$APP_REPO_NAME:latest'
-            }
-        }
-
-        stage('Generate taskdef.json and appspec.yaml') {
-            steps {
-                script {
-                    def imageUri = "${ECR_REGISTRY}/${APP_REPO_NAME}:latest"
-
-                    def taskdef = """{
-  "family": "webgoat-taskdef",
-  "networkMode": "awsvpc",
-  "containerDefinitions": [
-    {
-      "name": "${CONTAINER_NAME}",
-      "image": "${imageUri}",
-      "memory": 512,
-      "cpu": 256,
-      "essential": true,
-      "portMappings": [
-        {
-          "containerPort": ${CONTAINER_PORT},
-          "protocol": "tcp"
-        }
-      ]
     }
-  ],
-  "requiresCompatibilities": ["FARGATE"],
-  "cpu": "256",
-  "memory": "512",
-  "executionRoleArn": "${TASK_EXEC_ROLE}"
-}"""
-                    writeFile file: 'taskdef.json', text: taskdef
 
-                    def taskDefArn = sh(
-                        script: "aws ecs register-task-definition --cli-input-json file://taskdef.json --query 'taskDefinition.taskDefinitionArn' --region $AWS_REGION --output text",
-                        returnStdout: true
-                    ).trim()
-
-                    def appspec = """version: 1
-Resources:
-  - TargetService:
-      Type: AWS::ECS::Service
-      Properties:
-        TaskDefinition: "${taskDefArn}"
-        LoadBalancerInfo:
-          ContainerName: "${CONTAINER_NAME}"
-          ContainerPort: ${CONTAINER_PORT}
-        PlatformVersion: "LATEST"
-"""
-                    writeFile file: 'appspec.yaml', text: appspec
-                }
-            }
+    post {
+        always {
+            echo '🧹 Cleaning up local Docker images...'
+            sh 'docker image prune -af'
         }
-
-        stage('Zip and Upload for CodeDeploy') {
-            steps {
-                sh '''
-                    zip $BUNDLE_NAME appspec.yaml taskdef.json
-                    aws s3 cp $BUNDLE_NAME s3://$S3_BUCKET/$BUNDLE_NAME --region $AWS_REGION
-                '''
-            }
+        success {
+            echo '✅ Semgrep + Build + Docker succeeded!'
         }
-
-        stage('Trigger CodeDeploy') {
-            steps {
-                sh '''
-                    aws deploy creat
-
+        failure {
+            echo '❌ Pipeline failed. Check the logs above.'
+        }
+    }
+}
