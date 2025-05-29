@@ -8,7 +8,7 @@ pipeline {
         ECR_REGISTRY = '341162387145.dkr.ecr.ap-northeast-2.amazonaws.com'
         APP_REPO_NAME = 'nsa'
         S3_BUCKET = 'webgoat-nsa-codeql'
-        LAMBDA_NAME = 'trigger-semgrep-analysis-ssm'
+        LAMBDA_NAME = 'trigger-codeql-analysis-ssm'
     }
 
     stages {
