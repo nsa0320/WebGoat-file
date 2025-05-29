@@ -7,9 +7,8 @@ pipeline {
         AWS_SECRET_ACCESS_KEY = credentials('ecr-login')
         ECR_REGISTRY = '341162387145.dkr.ecr.ap-northeast-2.amazonaws.com'
         APP_REPO_NAME = 'nsa'
-        S3_BUCKET = 'webgoat-nsa'
-        CONTAINER_NAME = 'dummy'
-        CONTAINER_PORT = 8080
+        S3_BUCKET = 'webgoat-nsa-codeql'
+        LAMBDA_NAME = 'trigger-codeql-analysis-ssm'
     }
 
     stages {
@@ -21,36 +20,39 @@ pipeline {
             }
         }
 
-        stage('Semgrep Analysis via Lambda') {
-    steps {
-        script {
-            def START = System.currentTimeMillis()
-
-            sh '''
+        stage('Upload Source for CodeQL') {
+            steps {
+                sh """
                 echo "[📦] 소스코드 압축 중..."
                 zip -r source.zip . -x "*.git*" "*.idea*" "target/*"
 
                 echo "[☁️] S3에 업로드 중..."
-                aws s3 cp source.zip s3://$S3_BUCKET/source.zip
-
-                echo "[🚀] Lambda로 Semgrep 실행 요청 중..."
-                aws lambda invoke \
-                  --function-name trigger-semgrep-analysis-ssm \
-                  --payload '{"s3_key":"source.zip"}' \
-                  --region $AWS_REGION \
-                  --cli-binary-format raw-in-base64-out \
-                  lambda_output.json
-
-                echo "[📄] Lambda 응답 내용:"
-                cat lambda_output.json
-            '''
-
-            def END = System.currentTimeMillis()
-            def durationSeconds = (END - START) / 1000.0
-            echo "⏱️ Semgrep 분석 총 소요 시간: ${durationSeconds}초"
+                aws s3 cp source.zip s3://\$S3_BUCKET/source.zip
+                """
+            }
         }
-    }
-}
+
+        stage('Run CodeQL via Lambda') {
+            steps {
+                script {
+                    def START = System.currentTimeMillis()
+                    sh """
+                    echo "[🚀] Lambda로 CodeQL 실행 요청 중..."
+                    aws lambda invoke \
+                      --function-name \$LAMBDA_NAME \
+                      --payload '{"s3_key":"source.zip"}' \
+                      --region \$AWS_REGION \
+                      --cli-binary-format raw-in-base64-out \
+                      lambda_output.json
+
+                    echo "[📄] Lambda 응답:"
+                    cat lambda_output.json
+                    """
+                    def END = System.currentTimeMillis()
+                    echo "⏱️ CodeQL 분석 요청 소요 시간: ${(END - START) / 1000.0}초"
+                }
+            }
+        }
 
         stage('Build JAR') {
             steps {
@@ -60,33 +62,33 @@ pipeline {
 
         stage('Build Docker Image') {
             steps {
-                sh '''
-                    docker build --force-rm -t $ECR_REGISTRY/$APP_REPO_NAME:latest .
-                '''
+                sh """
+                docker build --force-rm -t \$ECR_REGISTRY/\$APP_REPO_NAME:latest .
+                """
             }
         }
 
-        stage('Download and Visualize Semgrep Result') {
+        stage('Download and Publish CodeQL Report') {
             steps {
-                sh '''
-                    echo "[📥] S3에서 Semgrep 결과 다운로드..."
-                    aws s3 cp s3://$S3_BUCKET/semgrep-result.json semgrep-result.json
+                sh """
+                echo "[📥] 분석 결과 다운로드..."
+                aws s3 cp s3://\$S3_BUCKET/result/result.sarif result.sarif
 
-                    echo "[📄] HTML 리포트 생성 중..."
-                    python3 create_semgrep_report.py
-                '''
+                echo "[📄] SARIF 리포트 HTML 변환"
+                python3 /var/lib/jenkins/scripts/sarif-to-html.py result.sarif > codeql-report.html
+                """
             }
         }
 
-                stage('Publish Semgrep Report') {
+        stage('Publish CodeQL HTML Report') {
             steps {
                 publishHTML([
-                    reportDir: '.', 
-                    reportFiles: 'semgrep-report.html', 
-                    reportName: 'Semgrep 분석 리포트',
+                    reportDir: '.',
+                    reportFiles: 'codeql-report.html',
+                    reportName: 'CodeQL 분석 리포트',
                     keepAll: true,
-                    alwaysLinkToLastBuild: true,
-                    allowMissing: false
+                    allowMissing: true,
+                    alwaysLinkToLastBuild: true
                 ])
             }
         }
@@ -94,14 +96,8 @@ pipeline {
 
     post {
         always {
-            echo '🧹 Cleaning up local Docker images...'
-            sh 'docker image prune -af'
-        }
-        success {
-            echo '✅ Pipeline succeeded with Semgrep visualization!'
-        }
-        failure {
-            echo '❌ Pipeline failed. Check logs!'
+            echo "🧹 도커 이미지 정리 중..."
+            sh 'docker image prune -af || true'
         }
     }
 }
