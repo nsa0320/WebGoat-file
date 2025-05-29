@@ -57,6 +57,28 @@ pipeline {
                 '''
             }
         }
+
+        stage('Download and Visualize Semgrep Result') {
+            steps {
+                sh '''
+                    echo "[📥] S3에서 Semgrep 결과 다운로드..."
+                    aws s3 cp s3://$S3_BUCKET/semgrep-result.json semgrep-result.json
+
+                    echo "[📄] HTML 리포트 생성 중..."
+                    python3 create_semgrep_report.py
+                '''
+            }
+        }
+
+        stage('Publish Semgrep Report') {
+            steps {
+                publishHTML([
+                    reportDir: '.', 
+                    reportFiles: 'semgrep-report.html', 
+                    reportName: 'Semgrep 분석 리포트'
+                ])
+            }
+        }
     }
 
     post {
@@ -65,10 +87,10 @@ pipeline {
             sh 'docker image prune -af'
         }
         success {
-            echo '✅ Semgrep + Build + Docker succeeded!'
+            echo '✅ Pipeline succeeded with Semgrep visualization!'
         }
         failure {
-            echo '❌ Pipeline failed. Check the logs above.'
+            echo '❌ Pipeline failed. Check logs!'
         }
     }
 }
