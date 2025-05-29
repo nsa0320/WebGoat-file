@@ -75,7 +75,7 @@ pipeline {
                 aws s3 cp s3://\$S3_BUCKET/result/result.sarif result.sarif
 
                 echo "[📄] SARIF 리포트 HTML 변환"
-                python3 /var/lib/jenkins/scripts/sarif-to-html.py result.sarif > codeql-report.html
+                python3 scripts/sarif-to-html.py > codeql-report.html
                 """
             }
         }
