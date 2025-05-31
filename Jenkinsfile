@@ -5,52 +5,18 @@ pipeline {
         AWS_REGION = 'ap-northeast-2'
         AWS_ACCESS_KEY_ID = credentials('ecr-login')
         AWS_SECRET_ACCESS_KEY = credentials('ecr-login')
-        ECR_REGISTRY = '341162387145.dkr.ecr.ap-northeast-2.amazonaws.com'
-        APP_REPO_NAME = 'nsa'
-        S3_BUCKET = 'webgoat-nsa-codeql'
-        LAMBDA_NAME = 'trigger-codeql-analysis-ssm'
+        S3_BUCKET = 'webgoat-nsa'
+        SEMGREP_SERVER = 'ec2-user@13.125.229.113'
+        SEMGREP_KEY = 'semgrep-fix-key'
     }
 
     stages {
         stage('Checkout') {
             steps {
+                deleteDir()
                 git branch: 'develop',
                     url: 'https://github.com/nsa0320/WebGoat-file.git',
                     credentialsId: '1'
-            }
-        }
-
-        stage('Upload Source for CodeQL') {
-            steps {
-                sh """
-                echo "[📦] 소스코드 압축 중..."
-                zip -r source.zip . -x "*.git*" "*.idea*" "target/*"
-
-                echo "[☁️] S3에 업로드 중..."
-                aws s3 cp source.zip s3://\$S3_BUCKET/source.zip
-                """
-            }
-        }
-
-        stage('Run CodeQL via Lambda') {
-            steps {
-                script {
-                    def START = System.currentTimeMillis()
-                    sh """
-                    echo "[🚀] Lambda로 CodeQL 실행 요청 중..."
-                    aws lambda invoke \
-                      --function-name \$LAMBDA_NAME \
-                      --payload '{"s3_key":"source.zip"}' \
-                      --region \$AWS_REGION \
-                      --cli-binary-format raw-in-base64-out \
-                      lambda_output.json
-
-                    echo "[📄] Lambda 응답:"
-                    cat lambda_output.json
-                    """
-                    def END = System.currentTimeMillis()
-                    echo "⏱️ CodeQL 분석 요청 소요 시간: ${(END - START) / 1000.0}초"
-                }
             }
         }
 
@@ -60,35 +26,69 @@ pipeline {
             }
         }
 
-        stage('Build Docker Image') {
+        stage('Run Semgrep Security Scan via SSH') {
             steps {
-                sh """
-                docker build --force-rm -t \$ECR_REGISTRY/\$APP_REPO_NAME:latest .
-                """
+                sshagent(["$SEMGREP_KEY"]) {
+                    sh """
+                        ssh -o StrictHostKeyChecking=no $SEMGREP_SERVER '
+                          rm -rf ~/code && mkdir -p ~/code
+                        '
+                        scp -o StrictHostKeyChecking=no -r * $SEMGREP_SERVER:~/code
+                        ssh -o StrictHostKeyChecking=no $SEMGREP_SERVER '
+                          docker run --rm -v ~/code:/src semgrep/semgrep semgrep scan --config auto --json > ~/code/result.json &&
+                          aws s3 cp ~/code/result.json s3://$S3_BUCKET/semgrep/result.json
+                        '
+                    """
+                }
             }
         }
 
-        stage('Download and Publish CodeQL Report') {
+        stage('Wait for Semgrep Result on S3') {
             steps {
-                sh """
-                echo "[📥] 분석 결과 다운로드..."
-                aws s3 cp s3://\$S3_BUCKET/result/result.sarif result.sarif
+                script {
+                    echo "[⏳] S3에 Semgrep 결과가 업로드될 때까지 대기 중..."
+                    def retries = 60
+                    def interval = 5
+                    def found = false
 
-                echo "[📄] SARIF 리포트 HTML 변환"
-                python3 scripts/sarif-to-html.py > codeql-report.html
-                """
+                    for (int i = 0; i < retries; i++) {
+                        def status = sh(
+                            script: "aws s3 ls s3://$S3_BUCKET/semgrep/result.json",
+                            returnStatus: true
+                        )
+                        if (status == 0) {
+                            echo "[✅] result.json 확인 완료!"
+                            found = true
+                            break
+                        }
+                        echo "[⏱️] 아직 result.json 없음. ${interval}초 후 재시도..."
+                        sleep interval
+                    }
+
+                    if (!found) {
+                        error("❌ semgrep result.json을 S3에서 ${retries * interval}초 동안 찾지 못했습니다.")
+                    }
+                }
             }
         }
 
-        stage('Publish CodeQL HTML Report') {
+        stage('Download & Publish Semgrep Report') {
             steps {
-                publishHTML([
-                    reportDir: '.',
-                    reportFiles: 'codeql-report.html',
-                    reportName: 'CodeQL 분석 리포트',
-                    keepAll: true,
-                    allowMissing: true,
-                    alwaysLinkToLastBuild: true
+                sh """
+                    echo "[📥] S3에서 result.json 다운로드..."
+                    aws s3 cp s3://$S3_BUCKET/semgrep/result.json result.json
+
+                    echo "[📄] HTML 리포트 생성..."
+                    python3 json_to_html.py
+                """
+
+                publishHTML(target: [
+                    reportName : 'Semgrep Report',
+                    reportDir  : '.',
+                    reportFiles: 'report.html',
+                    keepAll    : true,
+                    alwaysLinkToLastBuild: true,
+                    allowMissing: false
                 ])
             }
         }
@@ -96,8 +96,14 @@ pipeline {
 
     post {
         always {
-            echo "🧹 도커 이미지 정리 중..."
+            echo '🧹 Cleaning up local Docker images...'
             sh 'docker image prune -af || true'
+        }
+        success {
+            echo '✅ Semgrep 분석 및 JAR 빌드 완료!'
+        }
+        failure {
+            echo '❌ 실패. 로그 확인 필요.'
         }
     }
 }
