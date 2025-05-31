@@ -52,17 +52,23 @@ pipeline {
         stage('Download & Visualize Semgrep Result') {
             steps {
                 sh '''
-                    echo "[📥] S3에서 결과 파일 다운로드..."
+                    echo "[📥] S3에서 Semgrep 결과 다운로드..."
                     aws s3 cp s3://$S3_BUCKET/semgrep-result.json semgrep-result.json
-                    aws s3 cp s3://$S3_BUCKET/semgrep-duration.txt semgrep-duration.txt
+
+                    echo "[📥] duration.txt 존재 시 다운로드..."
+                    aws s3 cp s3://$S3_BUCKET/semgrep-duration.txt semgrep-duration.txt || echo "⏱️ duration.txt 없음. 생략"
 
                     echo "[📄] HTML 리포트 생성 중..."
                     python3 create_semgrep_report.py
                 '''
 
                 script {
-                    def duration = readFile('semgrep-duration.txt').trim()
-                    echo "⏱️ 실제 Semgrep 분석 소요 시간: ${duration}초"
+                    if (fileExists('semgrep-duration.txt')) {
+                        def duration = readFile('semgrep-duration.txt').trim()
+                        echo "⏱️ 실제 Semgrep 분석 소요 시간: ${duration}초"
+                    } else {
+                        echo "⚠️ duration.txt 파일이 없어 분석 시간 출력 생략"
+                    }
                 }
 
                 publishHTML(target: [
