@@ -49,40 +49,6 @@ pipeline {
             }
         }
 
-        stage('Wait for Semgrep Result on S3') {
-            steps {
-                script {
-                    echo "[⏳] semgrep-result.json과 duration.txt 대기 중..."
-                    def retries = 60
-                    def interval = 5
-                    def resultFound = false
-                    def durationFound = false
-
-                    for (int i = 0; i < retries; i++) {
-                        def resultStatus = sh(
-                            script: "aws s3 ls s3://$S3_BUCKET/semgrep-result.json",
-                            returnStatus: true
-                        )
-                        def durationStatus = sh(
-                            script: "aws s3 ls s3://$S3_BUCKET/semgrep-duration.txt",
-                            returnStatus: true
-                        )
-                        if (resultStatus == 0 && durationStatus == 0) {
-                            echo "[✅] 결과 파일 모두 확인 완료!"
-                            resultFound = true
-                            break
-                        }
-                        echo "[⏱️] 아직 결과 없음. ${interval}초 후 재시도..."
-                        sleep interval
-                    }
-
-                    if (!resultFound) {
-                        error("❌ 5분간 기다렸지만 결과 파일이 S3에 없습니다.")
-                    }
-                }
-            }
-        }
-
         stage('Download & Visualize Semgrep Result') {
             steps {
                 sh '''
