@@ -15,7 +15,7 @@ pipeline {
     }
 
     stages {
-        stage('📦 Checkout') {
+        stage('Checkout') {
             // 현재 jenkins job이 연결된 git 저장소를 클론해오는 단계
             // Jenkins에서는 scm (source code management)을 통해 소스코드를 가져옴
             // checkout scm은 job이 연동된 git 저장소의 코드를 가져온다는 것
